@@ -1,13 +1,13 @@
 const MIN_ROWS = 4;
 const MAX_ROWS = 14;
 
-const REFRESH_INTERVAL_MS = 20;
+const REFRESH_INTERVAL_MS = 100;
 
-const PIXEL_TIMEOUT = 4000;
+const PIXEL_TIMEOUT = 60000;
 const PIXEL_SIZE = 35;
 const PIXEL_GUTTER = 5;
 
-const BUCKET_SECONDS = 5;
+const BUCKET_SECONDS = 1;
 
 const COLORS = ["red", "orange", "yellow", "green", "blue", "purple"];
 
@@ -83,15 +83,15 @@ class App {
 
 	load(body) {
 	    fetch('./color', {
-	        method: "POST",
-	        body: this.req(),
+	        method: "GET",
 	    })
-	    .then(function(res) {
+	    .then(function(res, status, xhr) {
 	       return res.json().then(color => ({ color, res }))
 	    }).then((function(res) {
 	    	const {color} = res;
 	    	const error = res.res.status === 500;
-	    	this.colors.add(color);
+			const cluster = res.res.headers.get('x-cluster-name');
+	    	this.colors.add(color,cluster);
 	        this.grid.light(this.randCoord(), color, error);
 	        this.graph.record(color, error);
 	    }).bind(this));
@@ -138,69 +138,19 @@ class Button {
 	}
 }
 
-class Slider {
-	constructor(name, unitLabel, onChange) {
-		this.slider = document.getElementById(name);
-		this.label = document.getElementById(`${name}-label`);
-		this.unit = unitLabel;
-		this.update();
-		this.onChange = onChange.bind(this);
-		this.slider.oninput = this.update.bind(this);
-	}
-
-	format(val) {
-		return `${Math.round(val * 10) / 10 || 0}${this.unit}`;
-	}
-
-	update() {
-		this.value = this.slider.value;
-		this.onChange && this.onChange(this.value);
-		this.label.innerHTML = this.format(this.value);
-	}
-
-	setValue(val) {
-		this.value = val || 0;
-		this.label.innerHTML = this.format(this.value);
-		this.slider.value = this.value;
-	}
-}
-
 class Colors {
 	constructor() {
 		this.available = {};
 		this.container = document.getElementById("colors");
 		this.selected = null;
-
-    	this.latencySlider = new Slider("latency", "s", l => {
-    		if (this.selected) {
-    			this.available[this.selected].latency = l;
-    		}
-    	});
-		this.errorSlider = new Slider("error", "%", e => {
-    		if (this.selected) {
-    			this.available[this.selected].error = e;
-    		}
-    	});
 	}
 
-	add(color) {
+	add(color,cluster) {
 		if (!this.available[color]) {
-			const c = new Color(color, () => this.select(color));
+			const c = new Color(color,cluster, () => this.select(color));
 	    	this.container.appendChild(c.container);
 	    	this.available[color] = c;
-	    	this.select(color);
-		}
-	}
-
-	select(color) {
-		if (this.selected !== color) {
-			if (this.selected) {
-				this.available[this.selected].container.classList.remove('colors__selected');
-			}
-			this.selected = color;
-			this.available[color].container.classList.add('colors__selected');
-			this.latencySlider.setValue(this.available[color].latency);
-			this.errorSlider.setValue(this.available[color].error);
+	    	// this.select(color);
 		}
 	}
 
@@ -210,14 +160,14 @@ class Colors {
 }
 
 class Color {
-	constructor(name, onClick) {
+	constructor(name, cluster, onClick) {
 		this.name = name;
 		const el = document.createElement("div");
+		el.classList.add("cluster");
     	el.classList.add(`colors__${name}`);
-    	el.addEventListener("click", onClick.bind(this));
+		const clusterName = (cluster) ? cluster : "unknown"
+		el.append(clusterName)
     	this.container = el;
-		this.latency = 0;
-		this.error = 0;
 	}
 
 	values() {

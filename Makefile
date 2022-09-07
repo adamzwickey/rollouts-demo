@@ -29,11 +29,11 @@ image:
 	docker build --build-arg COLOR=${COLOR} --build-arg ERROR_RATE=${ERROR_RATE} --build-arg LATENCY=${LATENCY} -t $(IMAGE_PREFIX)rollouts-demo:${IMAGE_TAG} .
 	@if [ "$(DOCKER_PUSH)" = "true" ] ; then docker push $(IMAGE_PREFIX)rollouts-demo:$(IMAGE_TAG) ; fi
 
-.PHONY: load-tester-image
-load-tester-image:
-	cd load-tester
-	docker build -t $(IMAGE_PREFIX)load-tester:latest load-tester
-	@if [ "$(DOCKER_PUSH)" = "true" ] ; then docker push $(IMAGE_PREFIX)load-tester:latest ; fi
+# .PHONY: load-tester-image
+# load-tester-image:
+# 	cd load-tester
+# 	docker build -t $(IMAGE_PREFIX)load-tester:latest load-tester
+# 	@if [ "$(DOCKER_PUSH)" = "true" ] ; then docker push $(IMAGE_PREFIX)load-tester:latest ; fi
 
 .PHONY: run
 run:
@@ -43,9 +43,9 @@ run:
 lint:
 	golangci-lint run --fix
 
-.PHONY: release
-release:
-	./release.sh DOCKER_PUSH=${DOCKER_PUSH} IMAGE_NAMESPACE=${IMAGE_NAMESPACE}
+# .PHONY: release
+# release:
+# 	./release.sh DOCKER_PUSH=${DOCKER_PUSH} IMAGE_NAMESPACE=${IMAGE_NAMESPACE}
 
 .PHONY: clean
 clean:

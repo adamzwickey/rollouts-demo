@@ -1,0 +1,123 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ha
+  labels:
+    istio-injection: enabled
+    # istio.io/rev: tsb-1-5-1-stable
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend
+  namespace: ha
+  labels:
+    app: frontend
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: ha
+  name: pod-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-pods
+  namespace: ha
+subjects:
+- kind: ServiceAccount
+  name: frontend
+  apiGroup: ""
+roleRef:
+  kind: Role
+  name: pod-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: ha
+  labels:
+    app: frontend
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: frontend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: ha
+  labels:
+    app: frontend
+    version: v1
+spec:
+  selector:
+    matchLabels:
+      app: frontend
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: frontend
+        version: v1
+    spec:
+      serviceAccountName: frontend
+      containers:
+        - name: demoapp
+          image: gcr.io/abz-perm/rollouts-demo:latest
+          imagePullPolicy: Always
+          env:
+            - name: COLOR
+              value: yellow
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+          ports:
+            - name: http
+              containerPort: 8080
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: frontend
+  namespace: ha
+spec:
+  secretName: frontend-cert
+  issuerRef:
+    name: letsencrypt-dns-cluster-issuer
+    kind: ClusterIssuer
+  dnsNames:
+    - demo.aws-east.yellowstone.cx.tetrate.info
+---
+apiVersion: install.tetrate.io/v1alpha1
+kind: IngressGateway
+metadata:
+  name: frontend-gateway
+  namespace: ha
+spec:
+  # revision: tsb-1-5-1-stable
+  kubeSpec:
+    service:
+      type: LoadBalancer
+      annotations:
+        "external-dns.alpha.kubernetes.io/hostname": "demo.aws-east.yellowstone.cx.tetrate.info."
+        "service.beta.kubernetes.io/aws-load-balancer-type": "nlb"

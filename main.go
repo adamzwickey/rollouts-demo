@@ -15,21 +15,20 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 const (
-	// defaultTerminationDelay delays termination of the program in a graceful shutdown situation.
-	// We do this to prevent the pod from exiting immediately upon a pod termination event
-	// (e.g. during a rolling update). This gives some time for ingress controllers to react to
-	// the Pod IP being removed from the Service's Endpoint list, which prevents traffic from being
-	// directed to terminated pods, which otherwise would cause timeout errors and/or request delays.
-	// See: https://github.com/kubernetes/ingress-nginx/issues/3335#issuecomment-434970950
-	defaultTerminationDelay = 10
+	defaultTerminationDelay = 2
 )
 
 var (
-	color  = os.Getenv("COLOR")
-	colors = []string{
+	color       = os.Getenv("COLOR")
+	clusterName = os.Getenv("CLUSTER_NAME")
+	colors      = []string{
 		"red",
 		"orange",
 		"yellow",
@@ -72,6 +71,17 @@ func main() {
 	flag.BoolVar(&tls, "tls", false, "Enable TLS (with self-signed certificate)")
 	flag.Parse()
 
+	if clusterName == "" {
+		for i := 0; i < 5; i++ {
+			err := setKubeEnv()
+			if err == nil {
+				break
+			}
+			log.Printf("Kube env not set")
+			time.Sleep(1 * time.Second)
+		}
+	}
+
 	rand.Seed(time.Now().UnixNano())
 
 	router := http.NewServeMux()
@@ -82,13 +92,13 @@ func main() {
 		Addr:    listenAddr,
 		Handler: router,
 	}
-	if tls {
-		tlsConfig, err := CreateServerTLSConfig("", "", []string{"localhost", "rollouts-demo"})
-		if err != nil {
-			log.Fatalf("Could not generate TLS config: %v\n", err)
-		}
-		server.TLSConfig = tlsConfig
-	}
+	// if tls {
+	// 	tlsConfig, err := CreateServerTLSConfig("", "", []string{"localhost", "rollouts-demo"})
+	// 	if err != nil {
+	// 		log.Fatalf("Could not generate TLS config: %v\n", err)
+	// 	}
+	// 	server.TLSConfig = tlsConfig
+	// }
 
 	done := make(chan bool)
 	quit := make(chan os.Signal, 1)
@@ -128,6 +138,46 @@ func main() {
 
 	<-done
 	log.Println("Server stopped")
+}
+
+func setKubeEnv() error {
+	// creates the in-cluster config
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return err
+	}
+	// creates the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+
+	ns := os.Getenv("NAMESPACE")
+	if ns == "" {
+		ns = "-"
+	}
+
+	pod := os.Getenv("POD_NAME")
+	result, err := clientset.CoreV1().Pods(ns).Get(context.TODO(), pod, metav1.GetOptions{})
+	if err != nil {
+		log.Printf("Pod %s not found. Err: %v", pod, err)
+		return err
+	}
+
+	for _, container := range result.Spec.Containers {
+		if "istio-proxy" == container.Name {
+			for _, envVar := range container.Env {
+				switch envVar.Name {
+				case "ISTIO_META_CLUSTER_ID":
+					clusterName = envVar.Value
+				}
+			}
+		}
+	}
+
+	log.Printf("Cluster: " + clusterName)
+	log.Printf("Namespace: " + ns)
+	return nil
 }
 
 type colorParameters struct {
@@ -194,6 +244,7 @@ func getColor(w http.ResponseWriter, r *http.Request) {
 func printColor(colorToPrint string, w http.ResponseWriter, statusCode int) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("x-cluster-name", clusterName)
 	w.WriteHeader(statusCode)
 	fmt.Fprintf(w, "\"%s\"", colorToPrint)
 }
